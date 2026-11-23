@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'r
 import {
   AlignLeft, ArrowDownToLine, ArrowDownUp, ArrowLeft, ArrowRight, ArrowUpRight, CheckCircle2,
   ChevronRight, CircleHelp, Clipboard, Copy, FileImage, Files, FileStack, FileText, Grid2X2,
-  Image, Layers2, LayoutGrid, LoaderCircle, LockKeyhole, Merge, Minimize2, MousePointer2, Plus,
+  Image, Layers2, LayoutGrid, List, LoaderCircle, LockKeyhole, Merge, Minimize2, MousePointer2, Plus,
   Redo2, RotateCw, ScanText, Scissors, Settings2, Stamp, Trash2, Type, Undo2, UploadCloud, X, Hash, type LucideIcon,
 } from 'lucide-react'
 import { MarkEditor, PageTile } from './pages'
@@ -138,6 +138,7 @@ export function App() {
   const [history, setHistory] = useState<History>({ past: [], pages: [], future: [] })
   const { pages, past, future } = history
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [pageView, setPageView] = useState<'grid' | 'list'>('grid')
   const [clipboard, setClipboard] = useState<Sheet[]>([])
   const [name, setName] = useState('')
   const [dragging, setDragging] = useState<string>()
@@ -168,6 +169,15 @@ export function App() {
   const wordInput = useRef<HTMLInputElement>(null)
   const pdfInput = useRef<HTMLInputElement>(null)
   const library = new Set(pages.map(page => page.source))
+  const pageGroups = pages.reduce<{ source: Source; items: { sheet: Sheet; index: number }[] }[]>((groups, sheet, index) => {
+    let group = groups.at(-1)
+    if (!group || group.source !== sheet.source) {
+      group = { source: sheet.source, items: [] }
+      groups.push(group)
+    }
+    group.items.push({ sheet, index })
+    return groups
+  }, [])
   const chosen = pages.filter(page => selected.has(page.id))
   const working = pages.length > 0 || past.length > 0 || future.length > 0 || clipboard.length > 0
   const tool = toolId ? getTool(toolId) : undefined
@@ -614,6 +624,11 @@ export function App() {
                     {chosen.length ? t('{count} selected', { count: chosen.length }) : t('Select all')}
                   </button>
                   <span className="toolbar-divider" />
+                  <button type="button" className={'button subtle' + (pageView === 'grid' ? ' green-text' : '')}
+                    aria-label={t('Grid view')} aria-pressed={pageView === 'grid'} onClick={() => setPageView('grid')}><LayoutGrid size={15} /> {t('Grid')}</button>
+                  <button type="button" className={'button subtle' + (pageView === 'list' ? ' green-text' : '')}
+                    aria-label={t('List view')} aria-pressed={pageView === 'list'} onClick={() => setPageView('list')}><List size={15} /> {t('List')}</button>
+                  <span className="toolbar-divider" />
                   <button type="button" className="button subtle" disabled={!chosen.length || !!busy} onClick={() => copy(true)}><Scissors size={15} /> {t('Cut')}</button>
                   <button type="button" className="button subtle" disabled={!chosen.length || !!busy} onClick={() => copy()}><Copy size={15} /> {t('Copy')}</button>
                   <button type="button" className="button subtle" disabled={!clipboard.length || !!busy} onClick={() => paste()}><Clipboard size={15} /> {t('Paste')}{clipboard.length > 0 ? ' (' + clipboard.length + ')' : ''}</button>
@@ -625,13 +640,33 @@ export function App() {
                     onClick={() => updatePages(pages.filter(page => !selected.has(page.id)))}><Trash2 size={15} /> {t('Delete')}</button>
                 </div>
                 <div className={'page-grid' + (fileHover ? ' file-hover' : '')}>
-                  {pages.map((sheet, index) => <PageTile key={sheet.id} sheet={sheet} index={index} count={pages.length}
-                    selected={selected.has(sheet.id)} dragging={dragging === sheet.id} dropTarget={dropTarget === sheet.id && dragging !== sheet.id}
-                    onSelect={() => !busy && changeSelection(sheet.id)} onRotate={() => !busy && updatePages(pages.map(page => page.id === sheet.id ? { ...page, turn: (page.turn + 90) % 360 } : page))}
-                    onRemove={() => !busy && updatePages(pages.filter(page => page.id !== sheet.id))} onMove={delta => move(sheet.id, index + delta)}
-                    onOpen={() => !busy && setEditing(sheet)}
-                    onDrag={() => setDragging(sheet.id)} onDragEnd={() => { setDragging(undefined); setDropTarget(undefined) }}
-                    onHover={() => setDropTarget(sheet.id)} onDrop={() => { if (dragging) move(dragging, index); setDragging(undefined); setDropTarget(undefined) }} />)}
+                  {pageGroups.map(group => {
+                    const allSelected = group.items.every(({ sheet }) => selected.has(sheet.id))
+                    return <section className="page-group" key={group.items[0].sheet.id} aria-label={group.source.name}>
+                      <div className="page-group-heading">
+                        <div><strong dir="auto">{group.source.name}</strong><span>{pageCount(group.items.length)}</span></div>
+                        <button type="button" className="text-button" disabled={!!busy} aria-pressed={allSelected}
+                          aria-label={t('Select pages from {name}', { name: group.source.name })}
+                          onClick={() => setSelected(previous => {
+                            const next = new Set(previous)
+                            for (const { sheet } of group.items) {
+                              if (allSelected) next.delete(sheet.id)
+                              else next.add(sheet.id)
+                            }
+                            return next
+                          })}>{t(allSelected ? 'Deselect PDF pages' : 'Select PDF pages')}</button>
+                      </div>
+                      <div className={'page-group-pages' + (pageView === 'list' ? ' page-list' : '')}>
+                        {group.items.map(({ sheet, index }) => <PageTile key={sheet.id} sheet={sheet} index={index} count={pages.length}
+                          selected={selected.has(sheet.id)} dragging={dragging === sheet.id} dropTarget={dropTarget === sheet.id && dragging !== sheet.id}
+                          onSelect={() => !busy && changeSelection(sheet.id)} onRotate={() => !busy && updatePages(pages.map(page => page.id === sheet.id ? { ...page, turn: (page.turn + 90) % 360 } : page))}
+                          onRemove={() => !busy && updatePages(pages.filter(page => page.id !== sheet.id))} onMove={delta => move(sheet.id, index + delta)}
+                          onOpen={() => !busy && setEditing(sheet)}
+                          onDrag={() => setDragging(sheet.id)} onDragEnd={() => { setDragging(undefined); setDropTarget(undefined) }}
+                          onHover={() => setDropTarget(sheet.id)} onDrop={() => { if (dragging) move(dragging, index); setDragging(undefined); setDropTarget(undefined) }} />)}
+                      </div>
+                    </section>
+                  })}
                   <button className="add-tile" type="button" onClick={() => chooseFiles()} disabled={!!busy}><Plus size={23} /><strong>{t('Add more files')}</strong><span>{t('or drop them here')}</span></button>
                 </div>
                 <div className="export-bar">
