@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import {
-  AlignLeft, ArrowDownToLine, ArrowDownUp, ArrowLeft, ArrowRight, ArrowUpRight, CheckCircle2,
-  ChevronRight, CircleHelp, Clipboard, Copy, FileImage, Files, FileStack, FileText, Grid2X2,
+  AlignLeft, ArrowDown, ArrowDownToLine, ArrowDownUp, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, CheckCircle2,
+  ChevronDown, ChevronRight, CircleHelp, Clipboard, Copy, FileImage, Files, FileStack, FileText, Grid2X2,
   Image, Layers2, LayoutGrid, List, LoaderCircle, LockKeyhole, Merge, Minimize2, MousePointer2, Plus,
   Redo2, RotateCw, ScanText, Scissors, Settings2, Stamp, Trash2, Type, Undo2, UploadCloud, X, Hash, type LucideIcon,
 } from 'lucide-react'
@@ -139,6 +139,7 @@ export function App() {
   const { pages, past, future } = history
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [pageView, setPageView] = useState<'grid' | 'list'>('grid')
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set())
   const [clipboard, setClipboard] = useState<Sheet[]>([])
   const [name, setName] = useState('')
   const [dragging, setDragging] = useState<string>()
@@ -335,6 +336,35 @@ export function App() {
     const [page] = next.splice(current, 1)
     next.splice(index, 0, page)
     updatePages(next)
+  }
+
+  function moveGroup(items: { sheet: Sheet; index: number }[], delta: -1 | 1) {
+    if (busy || !items.length) return
+    const start = items[0].index
+    const end = start + items.length
+    if (delta === -1) {
+      if (start === 0) return
+      const previousSource = pages[start - 1].source
+      let previousStart = start - 1
+      while (previousStart > 0 && pages[previousStart - 1].source === previousSource) previousStart--
+      updatePages([
+        ...pages.slice(0, previousStart),
+        ...pages.slice(start, end),
+        ...pages.slice(previousStart, start),
+        ...pages.slice(end),
+      ])
+      return
+    }
+    if (end === pages.length) return
+    const nextSource = pages[end].source
+    let nextEnd = end + 1
+    while (nextEnd < pages.length && pages[nextEnd].source === nextSource) nextEnd++
+    updatePages([
+      ...pages.slice(0, start),
+      ...pages.slice(end, nextEnd),
+      ...pages.slice(start, end),
+      ...pages.slice(nextEnd),
+    ])
   }
 
   function changeSelection(id: string) {
@@ -640,12 +670,25 @@ export function App() {
                     onClick={() => updatePages(pages.filter(page => !selected.has(page.id)))}><Trash2 size={15} /> {t('Delete')}</button>
                 </div>
                 <div className={'page-grid' + (fileHover ? ' file-hover' : '')}>
-                  {pageGroups.map(group => {
+                  {pageGroups.map((group, groupIndex) => {
                     const allSelected = group.items.every(({ sheet }) => selected.has(sheet.id))
-                    return <section className="page-group" key={group.items[0].sheet.id} aria-label={group.source.name}>
+                    const groupId = group.items[0].sheet.id
+                    const collapsed = collapsedGroups.has(groupId)
+                    return <section className={'page-group' + (collapsed ? ' collapsed' : '')} key={groupId} aria-label={group.source.name}>
                       <div className="page-group-heading">
-                        <div><strong dir="auto">{group.source.name}</strong><span>{pageCount(group.items.length)}</span></div>
-                        <button type="button" className="text-button" disabled={!!busy} aria-pressed={allSelected}
+                        <button type="button" className="page-group-toggle" aria-expanded={!collapsed}
+                          aria-label={t(collapsed ? 'Expand PDF set {name}' : 'Collapse PDF set {name}', { name: group.source.name })}
+                          onClick={() => setCollapsedGroups(previous => {
+                            const next = new Set(previous)
+                            if (next.has(groupId)) next.delete(groupId)
+                            else next.add(groupId)
+                            return next
+                          })}>
+                          {collapsed ? <ChevronRight size={17} /> : <ChevronDown size={17} />}
+                          <span dir="auto">{group.source.name}</span><small>{pageCount(group.items.length)}</small>
+                        </button>
+                        <div className="page-group-actions">
+                          <button type="button" className={'button subtle group-select' + (allSelected ? ' green-text' : '')} disabled={!!busy} aria-pressed={allSelected}
                           aria-label={t('Select pages from {name}', { name: group.source.name })}
                           onClick={() => setSelected(previous => {
                             const next = new Set(previous)
@@ -654,9 +697,24 @@ export function App() {
                               else next.add(sheet.id)
                             }
                             return next
-                          })}>{t(allSelected ? 'Deselect PDF pages' : 'Select PDF pages')}</button>
+                          })}>{t(allSelected ? 'Deselect set' : 'Select set')}</button>
+                          <button type="button" className="icon-button group-action" title={t('Move set earlier')} aria-label={t('Move set earlier')}
+                            disabled={!!busy || groupIndex === 0} onClick={() => moveGroup(group.items, -1)}><ArrowUp size={15} /></button>
+                          <button type="button" className="icon-button group-action" title={t('Move set later')} aria-label={t('Move set later')}
+                            disabled={!!busy || groupIndex === pageGroups.length - 1} onClick={() => moveGroup(group.items, 1)}><ArrowDown size={15} /></button>
+                          <button type="button" className="icon-button group-action" title={t('Rotate set')} aria-label={t('Rotate set')}
+                            disabled={!!busy} onClick={() => {
+                              const ids = new Set(group.items.map(({ sheet }) => sheet.id))
+                              updatePages(pages.map(page => ids.has(page.id) ? { ...page, turn: (page.turn + 90) % 360 } : page))
+                            }}><RotateCw size={15} /></button>
+                          <button type="button" className="icon-button group-action danger" title={t('Delete set')} aria-label={t('Delete set')}
+                            disabled={!!busy} onClick={() => {
+                              const ids = new Set(group.items.map(({ sheet }) => sheet.id))
+                              updatePages(pages.filter(page => !ids.has(page.id)))
+                            }}><Trash2 size={15} /></button>
+                        </div>
                       </div>
-                      <div className={'page-group-pages' + (pageView === 'list' ? ' page-list' : '')}>
+                      {!collapsed && <div className={'page-group-pages' + (pageView === 'list' ? ' page-list' : '')}>
                         {group.items.map(({ sheet, index }) => <PageTile key={sheet.id} sheet={sheet} index={index} count={pages.length}
                           selected={selected.has(sheet.id)} dragging={dragging === sheet.id} dropTarget={dropTarget === sheet.id && dragging !== sheet.id}
                           onSelect={() => !busy && changeSelection(sheet.id)} onRotate={() => !busy && updatePages(pages.map(page => page.id === sheet.id ? { ...page, turn: (page.turn + 90) % 360 } : page))}
@@ -664,7 +722,7 @@ export function App() {
                           onOpen={() => !busy && setEditing(sheet)}
                           onDrag={() => setDragging(sheet.id)} onDragEnd={() => { setDragging(undefined); setDropTarget(undefined) }}
                           onHover={() => setDropTarget(sheet.id)} onDrop={() => { if (dragging) move(dragging, index); setDragging(undefined); setDropTarget(undefined) }} />)}
-                      </div>
+                      </div>}
                     </section>
                   })}
                   <button className="add-tile" type="button" onClick={() => chooseFiles()} disabled={!!busy}><Plus size={23} /><strong>{t('Add more files')}</strong><span>{t('or drop them here')}</span></button>
@@ -725,9 +783,19 @@ export function App() {
 
     {settings && <Modal title={t('Settings')} icon={Settings2} onClose={() => setSettings(false)}>
       <div className="modal-body tool-form">
-        <label className="field">{t('Language')}<select value={language} onChange={event => setLanguage(event.target.value === 'he' ? 'he' : 'en')}>
-          <option value="en" lang="en">English</option><option value="he" lang="he">עברית</option>
-        </select></label>
+        <fieldset className="language-field">
+          <legend className="field-label">{t('Language')}</legend>
+          <div className="language-options">
+            <button type="button" className={'button secondary language-option' + (language === 'en' ? ' green-text' : '')}
+              aria-label={t('English')} aria-pressed={language === 'en'} onClick={() => setLanguage('en')}>
+              <span aria-hidden="true">🇺🇸</span>{t('English')}
+            </button>
+            <button type="button" className={'button secondary language-option' + (language === 'he' ? ' green-text' : '')}
+              aria-label={t('Hebrew')} aria-pressed={language === 'he'} onClick={() => setLanguage('he')}>
+              <span aria-hidden="true">🇮🇱</span>{t('Hebrew')}
+            </button>
+          </div>
+        </fieldset>
         <label className="field">{t('Appearance')}<select value={theme} onChange={event => {
           const value = event.target.value
           setTheme(value === 'light' || value === 'dark' ? value : 'system')

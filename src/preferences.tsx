@@ -56,7 +56,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
 
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light'
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#141c18' : '#f7f8f5')
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#080b09' : '#f7f8f5')
     writePreference('theme', theme)
   }, [dark, theme])
 
